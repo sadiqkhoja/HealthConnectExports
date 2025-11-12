@@ -160,7 +160,6 @@ fun ExportDestinationInputField() {
         placeholder = { Text("Export destination URI") },
         value = fieldValue ?: "Loading...",
         maxLines = 1,
-        prefix = { Text("http://") },
         keyboardOptions = KeyboardOptions(
             KeyboardCapitalization.None,
             autoCorrect = false,
