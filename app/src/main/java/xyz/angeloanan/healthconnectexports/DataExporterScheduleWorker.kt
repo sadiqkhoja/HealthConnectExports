@@ -73,6 +73,30 @@ class DataExporterScheduleWorker(
             .build()
     }
 
+    private fun createSuccessNotification(): Notification {
+        return NotificationCompat.Builder(applicationContext, "export")
+            .setContentTitle("Export successful")
+            .setContentText("Health Connect data exported successfully")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .build()
+    }
+
+    private fun createPermissionFailureNotification(): Notification {
+        return NotificationCompat.Builder(applicationContext, "export")
+            .setContentTitle("Export failed")
+            .setContentText("Health Connect permissions not granted. Please grant permissions in the app.")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .build()
+    }
+
+    private fun createDestinationFailureNotification(): Notification {
+        return NotificationCompat.Builder(applicationContext, "export")
+            .setContentTitle("Export failed")
+            .setContentText("Export destination not set. Please configure destination URI in the app.")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .build()
+    }
+
     private suspend fun isHealthConnectPermissionGranted(healthConnect: HealthConnectClient): Boolean {
         val grantedPermissions = healthConnect.permissionController.getGrantedPermissions()
         return requiredHealthConnectPermissions.all { it in grantedPermissions }
@@ -86,14 +110,16 @@ class DataExporterScheduleWorker(
 
         if (!isGranted) {
             Log.d("DataExporterWorker", "Health Connect permissions not granted")
+            notificationManager.notify(1, createPermissionFailureNotification())
             return Result.failure()
         }
         Log.d("DataExporterWorker", "✅ Health Connect permissions granted")
 
         val exportDestination: String? =
             applicationContext.dataStore.data.map { it[EXPORT_DESTINATION_URI] }.first()
-        if (exportDestination == null) {
+        if (exportDestination == null || exportDestination.isEmpty()) {
             Log.d("DataExporterWorker", "Export destination not set")
+            notificationManager.notify(1, createDestinationFailureNotification())
             return Result.failure()
         }
         Log.d("DataExporterWorker", "✅ Export destination set")
@@ -165,6 +191,7 @@ class DataExporterScheduleWorker(
                 contentType(ContentType.Application.Xml)
                 setBody(xmlBody)
             }
+            Log.d("DataExporterWorker", "✅ Data export successful")
         } catch (e: Exception) {
             Log.e("DataExporterWorker", "Failed to export data", e)
 
@@ -174,6 +201,7 @@ class DataExporterScheduleWorker(
         }
 
         notificationManager.cancel(1)
+        notificationManager.notify(1, createSuccessNotification())
         return Result.success()
     }
 }
