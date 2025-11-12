@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import java.time.LocalDate
 import java.util.TimeZone
+import java.util.UUID
 
 val httpClient = HttpClient(Android)
 
@@ -136,13 +137,27 @@ class DataExporterScheduleWorker(
         jsonValues["sleep_duration_seconds"] =
             healthDataAggregate[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.seconds ?: 0
         val json = Gson().toJson(mapOf("time" to startOfDay.toEpochMilli(), "data" to jsonValues))
-        Log.d("DataExporterWorker", "Data: $json")
+        
+        // Generate UUID for instanceID
+        val instanceId = "uuid:${UUID.randomUUID()}"
+        
+        // Create XML body
+        val xmlBody = """
+            <data xmlns:jr="http://openrosa.org/javarosa" xmlns:orx="http://openrosa.org/xforms" id="Health-connect-sink" version="1">
+                <data>$json</data>
+                <meta>
+                    <instanceID>$instanceId</instanceID>
+                </meta>
+            </data>
+        """.trimIndent()
+        
+        Log.d("DataExporterWorker", "XML Data: $xmlBody")
 
         try {
             Log.d("DataExporterWorker", "Exporting data to $exportDestination")
             httpClient.post("https://$exportDestination") {
-                contentType(ContentType.Application.Json)
-                setBody(json)
+                contentType(ContentType.Application.Xml)
+                setBody(xmlBody)
             }
         } catch (e: Exception) {
             Log.e("DataExporterWorker", "Failed to export data", e)
