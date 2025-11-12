@@ -10,11 +10,14 @@ import androidx.core.content.getSystemService
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
+import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -40,6 +43,8 @@ val requiredHealthConnectPermissions = setOf(
     HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
     HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
     HealthPermission.getReadPermission(HeartRateRecord::class),
+    HealthPermission.getReadPermission(WeightRecord::class),
+    HealthPermission.getReadPermission(BodyFatRecord::class),
 )
 
 class DataExporterScheduleWorker(
@@ -125,7 +130,30 @@ class DataExporterScheduleWorker(
                 )
             )
         }
-        Log.d("DataExporterWorker", "Raw data: ${Gson().toJson(healthDataAggregate)}")
+        
+        // Fetch weight records for the day
+        val weightRecords = runBlocking {
+            healthConnect.readRecords(
+                ReadRecordsRequest(
+                    WeightRecord::class,
+                    timeRangeFilter = TimeRangeFilter.Companion.between(startOfDay, endOfDay)
+                )
+            )
+        }
+        
+        // Fetch body fat records for the day  
+        val bodyFatRecords = runBlocking {
+            healthConnect.readRecords(
+                ReadRecordsRequest(
+                    BodyFatRecord::class,
+                    timeRangeFilter = TimeRangeFilter.Companion.between(startOfDay, endOfDay)
+                )
+            )
+        }
+        
+        Log.d("DataExporterWorker", "Raw aggregate data: ${Gson().toJson(healthDataAggregate)}")
+        Log.d("DataExporterWorker", "Weight records: ${weightRecords.records.size}")
+        Log.d("DataExporterWorker", "Body fat records: ${bodyFatRecords.records.size}")
 
         val jsonValues = HashMap<String, Number>()
         jsonValues["steps"] = healthDataAggregate[StepsRecord.COUNT_TOTAL] ?: 0
@@ -136,6 +164,14 @@ class DataExporterScheduleWorker(
             healthDataAggregate[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories ?: 0
         jsonValues["sleep_duration_seconds"] =
             healthDataAggregate[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.seconds ?: 0
+        
+        // Get the latest weight from the day (if any records exist)
+        val latestWeight = weightRecords.records.maxByOrNull { it.time }?.weight?.inKilograms ?: 0
+        jsonValues["weight_kg"] = latestWeight
+        
+        // Get the latest body fat percentage from the day (if any records exist)  
+        val latestBodyFat = bodyFatRecords.records.maxByOrNull { it.time }?.percentage?.value ?: 0.0
+        jsonValues["body_fat_percentage"] = latestBodyFat
         val json = Gson().toJson(mapOf("time" to startOfDay.toEpochMilli(), "data" to jsonValues))
         
         // Generate UUID for instanceID
