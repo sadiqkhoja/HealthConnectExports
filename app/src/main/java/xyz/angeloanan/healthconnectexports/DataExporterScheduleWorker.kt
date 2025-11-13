@@ -10,12 +10,14 @@ import androidx.core.content.getSystemService
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -42,6 +44,7 @@ val requiredHealthConnectPermissions = setOf(
     HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
     HealthPermission.getReadPermission(HeartRateRecord::class),
     HealthPermission.getReadPermission(WeightRecord::class),
+    HealthPermission.getReadPermission(BodyFatRecord::class),
 )
 
 class DataExporterScheduleWorker(
@@ -155,6 +158,19 @@ class DataExporterScheduleWorker(
             )
         }
         
+        // Read body fat records since they cannot be aggregated
+        val bodyFatRecords = runBlocking {
+            healthConnect.readRecords(
+                ReadRecordsRequest(
+                    recordType = BodyFatRecord::class,
+                    timeRangeFilter = TimeRangeFilter.Companion.between(startOfDay, endOfDay),
+                )
+            )
+        }
+        
+        // Find the maximum body fat percentage
+        val maxBodyFatPercentage = bodyFatRecords.records.maxOfOrNull { it.percentage.value } ?: 0.0
+        
         Log.d("DataExporterWorker", "Raw aggregate data: ${Gson().toJson(healthDataAggregate)}")
 
         val jsonValues = HashMap<String, Number>()
@@ -168,6 +184,7 @@ class DataExporterScheduleWorker(
             healthDataAggregate[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.seconds ?: 0
         jsonValues["weight_kg"] =
             healthDataAggregate[WeightRecord.WEIGHT_MAX]?.inKilograms ?: 0
+        jsonValues["body_fat_percentage"] = maxBodyFatPercentage
         val json = Gson().toJson(mapOf("time" to startOfDay.toEpochMilli(), "data" to jsonValues))
         
         // Generate UUID for instanceID
